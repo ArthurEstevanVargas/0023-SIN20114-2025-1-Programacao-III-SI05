@@ -51,12 +51,29 @@ A primeira configuração importante do projeto é o arquivo `application.proper
 As propriedades deste arquivo variam de acordo com o banco de dados que você está utilizando. Abaixo está uma configuração básica para o **PostgreSQL**:
 
 ```properties
+spring.application.name=crud
+
 # ===============================
-# DATA SOURCE CONFIGURATION
+# = DATA SOURCE (PostgreSQL)
 # ===============================
-spring.datasource.url=jdbc:postgresql://<HOST>:<PORT>/<DATABASE_NAME>
-spring.datasource.username=<SEU_USUARIO>
-spring.datasource.password=<SUA_SENHA>
+spring.datasource.url=jdbc:postgresql://localhost:5432/edereco-API
+spring.datasource.username=postgres
+spring.datasource.password=123456
+spring.datasource.driver-class-name=org.postgresql.Driver
+
+# ===============================
+# = JPA/HIBERNATE
+# ===============================
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+spring.jpa.properties.hibernate.format_sql=true
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
+spring.jpa.properties.hibernate.jdbc.lob.non_contextual_creation=true
+
+# ===============================
+# = API CONFIG
+# ===============================
+app.viacep.url=https://viacep.com.br/ws/
 ```
 
 #### 🔧 Explicação das Propriedades
@@ -88,16 +105,56 @@ O Model representa a estrutura dos dados no sistema. É a base para definir como
 
 #### **Exemplo:**  
 ```java
-@Entity(name = "product")
-@Table(name = "product")
-public class Product {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-    private String name;
-    private Double price;
+package com.shaulin.crud.model;
 
-    // Getters e Setters
+import jakarta.persistence.*;
+import lombok.*;
+
+@Entity
+@Table(name = "endereco")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Endereco {
+
+    @Id
+    @Column(length = 9)
+    private String cep;
+
+    @Column(length = 255)
+    private String logradouro;
+
+    @Column(length = 255)
+    private String complemento;
+
+    @Column(length = 255)
+    private String bairro;
+
+    @Column(length = 255)
+    private String localidade;
+
+    @Column(length = 2)
+    private String uf;
+
+    @Column(length = 100)
+    private String estado;
+
+    @Column(length = 100)
+    private String regiao;
+
+    @Column(length = 20)
+    private String ibge;
+
+    @Column(length = 20)
+    private String gia;
+
+    @Column(length = 5)
+    private String ddd;
+
+    @Column(length = 10)
+    private String siafi;
 }
 ```
 
@@ -113,7 +170,25 @@ Facilitar a transferência de dados entre a camada de controle e a lógica de ne
 
 #### **Exemplo:**  
 ```java
-public record ProductDTO(String name, Long price) {}
+package com.shaulin.crud.dtos;
+
+import lombok.Builder;
+
+@Builder
+public record EnderecoDTO(
+        String cep,
+        String logradouro,
+        String complemento,
+        String bairro,
+        String localidade,
+        String uf,
+        String estado,
+        String regiao,
+        String ibge,
+        String gia,
+        String ddd,
+        String siafi
+) {}
 ```
 
 ---
@@ -127,7 +202,12 @@ São responsáveis pelo acesso ao banco de dados. Dependem diretamente das entid
 
 #### **Exemplo:**  
 ```java
-public interface ProductRepository extends JpaRepository<Product, Integer> {}
+package com.shaulin.crud.repositories;
+
+import com.shaulin.crud.model.Endereco;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface EnderecoRepository extends JpaRepository<Endereco, String> {}
 ```
 
 ---
@@ -141,56 +221,48 @@ A Controller gerencia as requisições HTTP e direciona para os serviços necess
 
 #### **Exemplo:**  
 ```java
+package com.shaulin.crud.controllers;
+
+import com.shaulin.crud.dtos.EnderecoDTO;
+import com.shaulin.crud.model.Endereco;
+import com.shaulin.crud.service.EnderecoService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+
 @RestController
-@RequestMapping("/products")
-public class ProductController {
+@RequestMapping("/cep")
+@RequiredArgsConstructor
+public class EnderecoController {
 
-    @Autowired
-    ProductRepository repository;
+    private final EnderecoService service;
 
-    @GetMapping
-    public ResponseEntity getAllProducts() {
-        List<Product> listProducts = repository.findAll();
-        return ResponseEntity.status(HttpStatus.OK).body(listProducts);
+    @GetMapping("/{cep}")
+    public ResponseEntity<EnderecoDTO> consultarCep(@PathVariable String cep) {
+        Endereco endereco = service.buscarCep(cep);
+
+        EnderecoDTO dto = EnderecoDTO.builder()
+                .cep(endereco.getCep())
+                .logradouro(endereco.getLogradouro())
+                .complemento(endereco.getComplemento())
+                .bairro(endereco.getBairro())
+                .localidade(endereco.getLocalidade())
+                .uf(endereco.getUf())
+                .estado(endereco.getEstado())
+                .regiao(endereco.getRegiao())
+                .ibge(endereco.getIbge())
+                .gia(endereco.getGia())
+                .ddd(endereco.getDdd())
+                .siafi(endereco.getSiafi())
+                .build();
+
+        return ResponseEntity.ok(dto);
     }
 
-    @GetMapping("/{id}")
-    public ResponseEntity getProductById(@PathVariable(value = "id") Integer id) {
-        Optional<Product> product = repository.findById(id);
-        if (product.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("PRODUCT NOT FOUND");
-        }
-        return ResponseEntity.status(HttpStatus.FOUND).body(product.get());
-    }
-
-    @PostMapping
-    public ResponseEntity insertProduct(@RequestBody ProductDTO productDTO) {
-        var product = new Product();
-        BeanUtils.copyProperties(productDTO, product);
-        return ResponseEntity.status(HttpStatus.CREATED).body(repository.save(product));
-    }
-
-    @DeleteMapping("/{id}")
-    public ResponseEntity delteProduct(@PathVariable(value = "id") Integer id) {
-        Optional<Product> product = repository.findById(id);
-        if (product.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("PRODUCT NOT FOUND");
-        }
-        repository.delete(product.get());
-        return ResponseEntity.status(HttpStatus.OK).body("PRODUCT DELETED");
-    }
-
-    @PutMapping("/{id}")
-    public ResponseEntity updateProduct(@PathVariable(value = "id") Integer id, @RequestBody ProductDTO productDTO) {
-        Optional<Product> product = repository.findById(id);
-        if (product.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("PRODUCT NOT FOUND");
-        }
-
-        var productModel = product.get();
-        BeanUtils.copyProperties(productDTO, productModel);
-
-        return ResponseEntity.status(HttpStatus.OK).body(repository.save(productModel));
+    @ExceptionHandler
+    public ResponseEntity<String> handleException(ResponseStatusException ex) {
+        return ResponseEntity.status(ex.getStatusCode()).body(ex.getReason());
     }
 }
 ```
@@ -215,21 +287,33 @@ O Flyway é uma ferramenta que permite gerenciar a evolução do banco de dados 
 
 Aqui está um exemplo simples de um script para criar a tabela `product`:  
 
-**Arquivo:** `V1__create_table_product.sql`
+**Arquivo:** `V1_create_table_endereco.SQL`
 
 ```sql
-CREATE TABLE product (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    price BIGINT NOT NULL
+CREATE TABLE endereco (
+    cep VARCHAR(9) PRIMARY KEY,
+    logradouro VARCHAR(255),
+    complemento VARCHAR(255),
+    bairro VARCHAR(255),
+    localidade VARCHAR(255),
+    uf VARCHAR(2),
+    estado VARCHAR(100),
+    regiao VARCHAR(100),
+    ibge VARCHAR(20),
+    gia VARCHAR(20),
+    ddd VARCHAR(5),
+    siafi VARCHAR(10)
 );
+
+-- Índice para melhorar consultas por UF (opcional)
+CREATE INDEX idx_endereco_uf ON endereco(uf);
 ```
 
 #### 💡 **Nomeação dos Arquivos:**
 
 A convenção para nomear os arquivos de migração no Flyway é:
 - ```V<versão>__<descrição>.sql```
-- ```Exemplo: V1__create_table_product.sql```
+- ```Exemplo: V1_create_table_endereco.SQL```
 
 #### 📝 **Como Funciona?**
 
